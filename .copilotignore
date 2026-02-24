@@ -1,0 +1,4 @@
+# Prevent Copilot from accessing sensitive files
+secrets.json
+credentials.json
+statements_2026/**

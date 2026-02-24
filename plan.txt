@@ -1,0 +1,12 @@
+Build a category-total dictionary in upload_to_gsheets in import_credit_chase.py. After reading the CSV into df, group by the Category column and sum Amount to get a {category: total} dict.
+
+Maintain a fixed category header row. Read or write a header row at row 1 in a column block starting to the right of the data (e.g. column F or G). The header should list every known category from category_map.py (or dynamically from all uploads so far). On first run, write the headers; on subsequent runs, read the existing headers and extend with any new categories.
+
+Write the summary row aligned to the corresponding collapsible group's summary row. Use the start_row value (the summary/month-label row) and place category totals in the matching columns (determined by the header from step 2). The first cell in this block should be "{Month} {Year} total" (e.g. "January 2026 total"), followed by each category's summed amount in its respective column.
+
+Use worksheet.update (batch cell update) to write the header row and the summary row in a single API call, using range notation like G1:Z1 for headers and G{start_row}:Z{start_row} for the data row. This avoids row-shifting issues with append_row.
+
+Further Considerations
+Column offset: The transaction data uses 7 columns (A–G). Should the summary block start at column H (immediately adjacent) or leave a gap column for readability (start at I)? I'd recommend a one-column gap.
+Category source: Should we use a fixed/sorted list from category_map.py for consistent column order, or dynamically build it from the categories actually seen across all uploaded statements? Dynamic is more flexible but may reorder columns as new categories appear.
+Credit card CSV support: The credit card CSV (credit_statement.csv) uses Chase's own category names (e.g. "Professional Services") which differ from category_map.py. If you plan to use this script for credit card statements too, the summary logic should handle both category schemes.
