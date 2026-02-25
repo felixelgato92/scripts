@@ -13,7 +13,12 @@ JSON_FILE = 'credentials.json'  # The key you downloaded
 SHEET_NAME = 'Tithing 2025'    # The name of your Google Sheet
 TAB_NAME = 'All chase transactions'
 
-CATEGORY_TABLE_HEADER = ['Category', 'Total Amount', 'Total Items']
+YEAR = 2026
+MONTH_NAMES = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+CATEGORY_TABLE_HEADER = ['Category', 'Total Amount', 'Total Items'] + MONTH_NAMES
 MIN_SEPARATOR_ROWS = 5
 FILTER_VIEW_TITLE = 'By Total Amount'
 
@@ -28,19 +33,39 @@ def _categorize_description(description: str) -> str:
 
 
 def _build_category_table(categories: set) -> list:
-    """Build the category summary table rows with SUMIF/COUNTIF formulas.
+    """Build the category summary table rows with SUMIF/COUNTIF/SUMIFS formulas.
 
-    Returns a list of rows starting with the header row.
+    Row 1 is the year label, row 2 is the header, rows 3+ are category data.
+    Each category row includes 12 monthly SUMIFS columns.
+    Formula ranges start after the category table to avoid circular references.
+    Returns a list of rows starting with the year label row.
     """
     sorted_cats = sorted(categories)
-    rows = [CATEGORY_TABLE_HEADER]
+    # First data row after the table: year + header + N categories + 1
+    data_start = len(sorted_cats) + 3
+    year_row = [YEAR]
+    rows = [year_row, CATEGORY_TABLE_HEADER]
     for i, cat in enumerate(sorted_cats):
-        row_num = i + 2  # 1-based (row 1 is the header)
-        rows.append([
+        row_num = i + 3  # 1-based (row 1 = year, row 2 = header, row 3+ = data)
+        row = [
             cat,
-            f'=SUMIF(D:D,A{row_num},F:F)',
-            f'=COUNTIF(D:D,A{row_num})',
-        ])
+            f'=SUMIF(D{data_start}:D,A{row_num},F{data_start}:F)',
+            f'=COUNTIF(D{data_start}:D,A{row_num})',
+        ]
+        # Add 12 monthly SUMIFS columns (one per month)
+        for m in range(1, 13):
+            if m == 12:
+                end_year = YEAR + 1
+                end_month = 1
+            else:
+                end_year = YEAR
+                end_month = m + 1
+            row.append(
+                f'=SUMIFS(F{data_start}:F,D{data_start}:D,A{row_num},'
+                f'A{data_start}:A,">="&DATE({YEAR},{m},1),'
+                f'A{data_start}:A,"<"&DATE({end_year},{end_month},1))'
+            )
+        rows.append(row)
     return rows
 
 
@@ -88,10 +113,10 @@ def _ensure_filter_view(
     ]
     filter_range = {
         'sheetId': worksheet.id,
-        'startRowIndex': 0,
+        'startRowIndex': 1,                    # skip year label row
         'endRowIndex': category_table_size,
         'startColumnIndex': 0,
-        'endColumnIndex': 3,
+        'endColumnIndex': 15,                   # A through O (15 columns)
     }
 
     existing_id = _find_filter_view_id(spreadsheet, worksheet.id, FILTER_VIEW_TITLE)
@@ -138,15 +163,15 @@ def _write_category_table(
         value_input_option='USER_ENTERED',
     )
 
-    # Format column B (Total Amount) as currency
+    # Format columns B–O (Total Amount + monthly columns) as currency
     requests = [{
         "repeatCell": {
             "range": {
                 "sheetId": worksheet.id,
-                "startRowIndex": 1,                  # skip header row (0-based)
+                "startRowIndex": 2,                  # skip year + header rows (0-based)
                 "endRowIndex": len(category_table),   # exclusive
                 "startColumnIndex": 1,                # column B
-                "endColumnIndex": 2,
+                "endColumnIndex": 15,                 # through column O
             },
             "cell": {
                 "userEnteredFormat": {
@@ -206,8 +231,8 @@ def upload_to_gsheets(csv_file: str) -> None:
     category_table_size = len(category_table)  # header + one row per category
 
     has_category_table = (
-        len(existing_data) > 0
-        and existing_data[0] == CATEGORY_TABLE_HEADER
+        len(existing_data) > 1
+        and existing_data[1][:3] == ['Category', 'Total Amount', 'Total Items']
     )
 
     # Detect whether the existing table is stale (categories added/removed)
@@ -245,7 +270,7 @@ def upload_to_gsheets(csv_file: str) -> None:
                     }]})
             else:
                 # Table shrank — clear leftover rows
-                worksheet.batch_clear([f'A1:C{old_table_size}'])
+                worksheet.batch_clear([f'A1:O{old_table_size}'])
 
         _write_category_table(spreadsheet, worksheet, category_table)
         # Re-fetch so row count is accurate
