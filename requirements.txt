@@ -2,3 +2,5 @@ pandas
 pdfplumber
 python-dateutil
 tabula-py
+gspread
+oauth2client
